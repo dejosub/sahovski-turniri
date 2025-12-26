@@ -1,6 +1,6 @@
-Sub AzurirajUcesnike()
+Sub Azuriraj_Click()
     '
-    ' Azuriraj Ucesnike Macro
+    ' Azuriraj Click Macro
     ' Calls Python script to update tournament participants
     '
     
@@ -8,7 +8,6 @@ Sub AzurirajUcesnike()
     Dim workbookPath As String
     Dim tournamentFolder As String
     Dim command As String
-    Dim result As Integer
     
     ' Get the current workbook directory (this is the tournament folder)
     workbookPath = ThisWorkbook.Path
@@ -17,44 +16,27 @@ Sub AzurirajUcesnike()
     ' Build path to Python script (assuming code folder is in parent directory)
     scriptPath = workbookPath & "\..\code\azuriraj_ucesnike.py"
     
-    ' Check if Python script exists
-    If Dir(scriptPath) = "" Then
-        MsgBox "Python script not found at: " & scriptPath, vbCritical, "Error"
-        Exit Sub
-    End If
-    
-    ' Show confirmation dialog
-    result = MsgBox("Da li želite da ažurirate učesnike turnira?" & vbCrLf & vbCrLf & _
-                   "Ovo će preneti sve plaćene učesnike u turnirsku tabelu.", _
-                   vbYesNo + vbQuestion, "Ažuriranje učesnika")
-    
-    If result = vbNo Then
-        Exit Sub
-    End If
-    
     ' Save the current workbook to ensure data is up to date
     ThisWorkbook.Save
     
-    ' Build command to run Python script with tournament folder as parameter
-    command = "python """ & scriptPath & """ """ & Chr(34) & tournamentFolder & Chr(34) & """"
+    ' Try direct Python execution (bypasses cmd.exe)
+    command = "python3 """ & scriptPath & """ """ & tournamentFolder & """"
     
-    ' Show status message
-    Application.StatusBar = "Ažuriranje učesnika u toku..."
-    Application.ScreenUpdating = False
+    ' Run the Python script with multiple fallback methods
+    On Error Resume Next
     
-    ' Run the Python script
-    result = Shell("cmd /c cd /d """ & workbookPath & "\.."" && " & command, vbNormalFocus)
+    ' Method 1: Direct Shell call
+    Shell command, vbHide
     
-    ' Wait a moment for the script to complete
-    Application.Wait (Now + TimeValue("0:00:03"))
+    If Err.Number <> 0 Then
+        Err.Clear
+        ' Method 2: WScript.Shell with working directory
+        Dim wsh As Object
+        Set wsh = CreateObject("WScript.Shell")
+        wsh.CurrentDirectory = workbookPath & "\.."
+        wsh.Run command, 1, False
+    End If
     
-    ' Reset status
-    Application.StatusBar = False
-    Application.ScreenUpdating = True
-    
-    ' Show completion message
-    MsgBox "Ažuriranje učesnika je završeno!" & vbCrLf & vbCrLf & _
-           "Proverite konzolu za detalje o izvršavanju.", _
-           vbInformation, "Završeno"
+    On Error GoTo 0
     
 End Sub

@@ -25,7 +25,6 @@ def load_ratings_lookup(ratings_file):
         df = pd.read_csv(ratings_file, header=None, names=['name', 'rating'])
         for _, row in df.iterrows():
             ratings[row['name']] = int(row['rating'])
-        print(f"Loaded {len(ratings)} player ratings from {ratings_file}")
     except Exception as e:
         print(f"Warning: Could not load ratings file {ratings_file}: {e}")
     return ratings
@@ -44,10 +43,6 @@ def get_paid_participants(ucesnici_file):
             if pd.notna(name) and name != "Укупно" and pd.notna(payment_status) and payment_status > 0:
                 paid_participants.append(name)
         
-        print(f"Found {len(paid_participants)} paid participants:")
-        for participant in paid_participants:
-            print(f"  - {participant}")
-        
         return paid_participants
     except Exception as e:
         print(f"Error reading participants file {ucesnici_file}: {e}")
@@ -61,6 +56,41 @@ def find_tournament_file(folder_path):
     for file in folder.glob("Turnir*.xlsm"):
         return str(file)
     return None
+
+def create_tournament_file_from_template(tournament_folder):
+    """Create tournament file from template if it doesn't exist"""
+    try:
+        tournament_folder = Path(tournament_folder)
+        folder_name = tournament_folder.name
+        
+        # Extract year/id from folder name (remove "Turnir " prefix)
+        if folder_name.startswith("Turnir "):
+            tournament_id = folder_name[7:]  # Remove "Turnir " prefix
+        else:
+            tournament_id = folder_name
+        
+        # Define paths
+        project_root = tournament_folder.parent
+        template_file = project_root / "Sabloni" / "Sahovski turnir sablon.xlsm"
+        new_tournament_file = tournament_folder / f"Turnir {tournament_id}.xlsm"
+        
+        print(f"Template file: {template_file}")
+        print(f"New tournament file: {new_tournament_file}")
+        
+        # Check if template exists
+        if not template_file.exists():
+            print(f"Error: Template file not found: {template_file}")
+            return None
+        
+        # Simple file copy - no processing, just copy and rename
+        shutil.copy2(template_file, new_tournament_file)
+        print(f"Created tournament file from template: {new_tournament_file}")
+        
+        return str(new_tournament_file)
+        
+    except Exception as e:
+        print(f"Error creating tournament file from template: {e}")
+        return None
 
 def update_excel_via_com(tournament_file, updates, player_slots_end=30):
     """Update Excel file using COM interface (works even when file is open)"""
@@ -80,45 +110,29 @@ def update_excel_via_com(tournament_file, updates, player_slots_end=30):
         for wb in xl.Workbooks:
             if wb.Name == file_name:
                 workbook = wb
-                print(f"Found open workbook: {file_name}")
                 break
         
         # If not open, open it
         if workbook is None:
             workbook = xl.Workbooks.Open(tournament_file)
-            print(f"Opened workbook: {tournament_file}")
         
         # Get the first worksheet
         worksheet = workbook.Worksheets(1)
-        print(f"Working with worksheet: {worksheet.Name}")
-        
-        # Debug: Print first few rows and columns to understand structure
-        print("Worksheet structure (first 5 rows, first 10 columns):")
-        for row in range(1, 6):
-            row_data = []
-            for col in range(1, 11):
-                cell_value = worksheet.Cells(row, col).Value
-                row_data.append(str(cell_value)[:20] if cell_value else "")
-            print(f"Row {row}: {row_data}")
         
         # Apply updates
         updates_applied = 0
         for row_idx, col_name, value in updates:
-            print(f"\nProcessing update: row_idx={row_idx}, col_name='{col_name}', value='{value}'")
-            
             # Find column index by name (check first row for headers)
             col_idx = None
             for col in range(1, worksheet.UsedRange.Columns.Count + 1):
                 header_value = worksheet.Cells(1, col).Value
                 if header_value and str(header_value).strip() == str(col_name).strip():
                     col_idx = col
-                    print(f"Found column '{col_name}' at index {col_idx}")
                     break
             
             # If not found in first row, try to find by column position for player names
             if col_idx is None and col_name == "Unnamed: 0":
                 col_idx = 1  # First column is player names
-                print(f"Using first column for player names")
             
             if col_idx:
                 # Excel uses 1-based indexing, pandas uses 0-based
@@ -126,8 +140,6 @@ def update_excel_via_com(tournament_file, updates, player_slots_end=30):
                 
                 # Get current cell and its value
                 current_cell = worksheet.Cells(excel_row, col_idx)
-                current_value = current_cell.Value
-                print(f"Current value at ({excel_row}, {col_idx}): '{current_value}'")
                 
                 # Use format copying approach to preserve formatting
                 try:
@@ -155,38 +167,22 @@ def update_excel_via_com(tournament_file, updates, player_slots_end=30):
                             
                             # Restore the value (PasteSpecial might have changed it)
                             current_cell.Value = value
-                            
-                            print(f"Copied formatting from reference cell and updated value")
-                        except Exception as format_error:
-                            print(f"Warning: Could not copy formatting: {format_error}")
-                    else:
-                        print("Warning: No reference cell found for formatting")
+                        except:
+                            pass  # Ignore formatting errors
                     
-                except Exception as update_error:
-                    print(f"Cell update failed: {update_error}")
+                except:
                     current_cell.Value = value
                 
-                # Verify the update
-                new_value = current_cell.Value
-                print(f"Updated cell ({excel_row}, {col_idx}) from '{current_value}' to '{new_value}' (formatting preserved)")
-                
                 updates_applied += 1
-            else:
-                print(f"Warning: Could not find column '{col_name}'")
         
         if updates_applied > 0:
             # Save the workbook
             workbook.Save()
-            print(f"Workbook saved successfully via COM ({updates_applied} updates applied)")
             return True
         else:
-            print("No updates were applied")
             return False
         
     except Exception as e:
-        print(f"COM update failed: {e}")
-        import traceback
-        traceback.print_exc()
         return False
     finally:
         try:
@@ -202,19 +198,14 @@ def save_with_retry(df, file_path, max_retries=3, retry_delay=1):
         try:
             # Method 1: Direct save
             df.to_excel(file_path, index=False)
-            print(f"Successfully saved {file_path} (attempt {attempt + 1})")
             return True
             
         except PermissionError as e:
-            print(f"Attempt {attempt + 1} failed: {e}")
-            
             if attempt < max_retries - 1:
-                print(f"Retrying in {retry_delay} seconds...")
                 time.sleep(retry_delay)
                 retry_delay *= 2  # Exponential backoff
             
         except Exception as e:
-            print(f"Unexpected error on attempt {attempt + 1}: {e}")
             break
     
     # Method 2: Try saving to temporary file then replace
@@ -225,11 +216,10 @@ def save_with_retry(df, file_path, max_retries=3, retry_delay=1):
         # Wait a moment then replace
         time.sleep(0.5)
         shutil.move(temp_file, file_path)
-        print(f"Successfully saved {file_path} via temporary file")
         return True
         
     except Exception as e:
-        print(f"Temporary file method failed: {e}")
+        pass
     
     return False
 
@@ -251,8 +241,6 @@ def update_tournament_file(tournament_file, paid_participants, ratings_lookup, d
                 player_slots_end = idx
                 break
         
-        print(f"Player slots range: 0 to {player_slots_end - 1}")
-        
         # Check existing participants in player slots only
         for idx in range(player_slots_end):
             name = df.iloc[idx][player_name_column]
@@ -266,8 +254,6 @@ def update_tournament_file(tournament_file, paid_participants, ratings_lookup, d
                     len(name_str) > 3):  # Actual names are longer than 3 characters
                     existing_participants.add(name)
         
-        print(f"Found {len(existing_participants)} existing participants in tournament file")
-        
         # Process each paid participant and collect updates
         updated_count = 0
         com_updates = []  # For COM method: (row_idx, col_name, value)
@@ -275,7 +261,6 @@ def update_tournament_file(tournament_file, paid_participants, ratings_lookup, d
         
         for participant in paid_participants:
             if participant in existing_participants:
-                print(f"  Skipping {participant} - already in tournament")
                 continue
             
             # Find first placeholder slot (only in player slots range)
@@ -288,15 +273,15 @@ def update_tournament_file(tournament_file, paid_participants, ratings_lookup, d
                     
                     # Look up and set rating
                     rating = ratings_lookup.get(participant, default_rating)
-                    if 'Pocetni poredak' in df.columns:
-                        df.at[idx, 'Pocetni poredak'] = rating
+                    if 'Relativna snaga' in df.columns:
+                        df.at[idx, 'Relativna snaga'] = rating
                     
                     # Store updates for COM method
                     com_updates.append((idx, player_name_column, participant))
-                    if 'Pocetni poredak' in df.columns:
-                        com_updates.append((idx, 'Pocetni poredak', rating))
+                    if 'Relativna snaga' in df.columns:
+                        com_updates.append((idx, 'Relativna snaga', rating))
                     
-                    print(f"  Added {participant} with rating {rating} (replacing {name})")
+                    print(f"{participant} - {rating}")
                     updated_count += 1
                     placeholder_found = True
                     break
@@ -324,100 +309,49 @@ def update_tournament_file(tournament_file, paid_participants, ratings_lookup, d
                 pass  # If win32api not available, just print to console
         
         if updated_count > 0:
-            print(f"\nAttempting to save {updated_count} participant updates...")
-            
             # Method 1: Try COM interface (works with open files)
             if EXCEL_COM_AVAILABLE and com_updates:
-                print("Trying COM interface (works with open files)...")
                 if update_excel_via_com(tournament_file, com_updates, player_slots_end):
-                    print(f"Successfully updated {updated_count} participants via COM")
                     return
-                else:
-                    print("COM method failed, trying alternative methods...")
             
             # Method 2: Try save with retry and temporary file
-            print("Trying pandas save with retry...")
             if save_with_retry(df, tournament_file):
-                print(f"Successfully updated {updated_count} participants")
                 return
             
-            # Method 3: Last resort - inform user with dialog
-            error_msg = (f"All save methods failed for {tournament_file}\n\n"
-                        "The data has been processed but could not be saved.\n\n"
-                        "Please:\n"
-                        "1. Close the Excel file\n"
-                        "2. Run the script again\n\n"
-                        "Or install pywin32 for better file handling:\n"
-                        "pip install pywin32")
-            
-            print(f"\nAll save methods failed for {tournament_file}")
-            print("The data has been processed but could not be saved.")
-            print("Please:")
-            print("1. Close the Excel file")
-            print("2. Run the script again")
-            print("Or install pywin32 for better file handling: pip install pywin32")
-            
-            # Show error dialog
-            try:
-                import win32api
-                win32api.MessageBox(0, error_msg, 'Tournament Update Failed', 0x10)  # Error icon
-            except:
-                pass  # If win32api not available, just print to console
-            
+            # Method 3: Last resort - inform user
+            print("Error: Could not save tournament file. Please close Excel and try again.")
         else:
-            print("\nNo updates were made to the tournament file")
+            print("No new participants to transfer")
             
     except Exception as e:
         print(f"Error updating tournament file {tournament_file}: {e}")
 
 def main():
     """Main function to orchestrate the participant update process"""
-    print("=== Chess Tournament Participant Update ===")
     
-    # Check if tournament folder was passed as command line argument
+    # Determine tournament folder
     if len(sys.argv) > 1:
         tournament_folder = Path(sys.argv[1])
-        print(f"Using tournament folder from parameter: {tournament_folder}")
     else:
-        # Fallback: Get the script directory and project root
-        script_dir = Path(__file__).parent
-        project_root = script_dir.parent
-        
-        # Find the most recent Turnir folder
-        current_year = None
-        tournament_folder = None
-        
-        for folder in project_root.glob("Turnir *"):
-            if folder.is_dir():
-                year_part = folder.name.replace("Turnir ", "")
-                if year_part.isdigit():
-                    if current_year is None or int(year_part) > int(current_year):
-                        current_year = year_part
-                        tournament_folder = folder
-        
-        if current_year is None:
-            print("Error: No tournament folder found (looking for 'Turnir YYYY' pattern)")
+        # Find the most recent tournament folder
+        tournament_folder = find_most_recent_tournament()
+        if not tournament_folder:
+            print("Error: No tournament folder found")
             return
-        
-        print(f"Using most recent tournament year: {current_year}")
     
-    # Extract year from folder name for file naming
-    folder_name = tournament_folder.name
-    if "Turnir " in folder_name:
-        current_year = folder_name.replace("Turnir ", "")
-    else:
-        print(f"Warning: Could not extract year from folder name '{folder_name}'")
-        current_year = "UNKNOWN"
+    # Check if tournament folder exists
+    if not tournament_folder.exists():
+        print(f"Error: Tournament folder does not exist: {tournament_folder}")
+        return
     
-    # Define file paths
-    ucesnici_file = tournament_folder / f"Ucesnici {current_year}.xlsx"
-    project_root = tournament_folder.parent
-    ratings_file = project_root / "Rating" / "all_ratings.csv"
-    
-    # Check if files exist
+    # Find participants file
+    ucesnici_file = tournament_folder / f"Ucesnici {tournament_folder.name.split()[-1]}.xlsx"
     if not ucesnici_file.exists():
         print(f"Error: Participants file not found: {ucesnici_file}")
         return
+    
+    # Load ratings lookup
+    ratings_file = Path("Rating/all_ratings.csv")
     
     if not ratings_file.exists():
         print(f"Warning: Ratings file not found: {ratings_file}")
@@ -428,21 +362,22 @@ def main():
     # Find tournament file
     tournament_file = find_tournament_file(tournament_folder)
     if not tournament_file:
-        print(f"Error: No tournament file found in {tournament_folder}")
-        return
-    
-    print(f"Using tournament file: {tournament_file}")
+        print("Creating tournament file from template...")
+        tournament_file = create_tournament_file_from_template(tournament_folder)
+        if not tournament_file:
+            print("Failed to create tournament file from template")
+            return
     
     # Get paid participants
     paid_participants = get_paid_participants(ucesnici_file)
     if not paid_participants:
-        print("No paid participants found. Nothing to update.")
+        print("No paid participants found.")
         return
+    
+    print(f"Found {len(paid_participants)} paid participants")
     
     # Update tournament file
     update_tournament_file(tournament_file, paid_participants, ratings_lookup)
-    
-    print("\n=== Update Complete ===")
 
 if __name__ == "__main__":
     main()
