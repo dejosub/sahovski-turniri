@@ -344,22 +344,24 @@ def main():
         print(f"Error: Tournament folder does not exist: {tournament_folder}")
         return
     
-    # Find participants file (try both .xlsm and .xlsx)
+    # Find participants file (only .xlsm files with macros)
     year = tournament_folder.name.split()[-1]
-    ucesnici_file = None
+    ucesnici_file = tournament_folder / f"Ucesnici {year}.xlsm"
     
-    for ext in ['.xlsm', '.xlsx']:
-        potential_file = tournament_folder / f"Ucesnici {year}{ext}"
-        if potential_file.exists():
-            ucesnici_file = potential_file
-            break
+    if not ucesnici_file.exists():
+        # Check if .xlsx exists and give specific error
+        xlsx_file = tournament_folder / f"Ucesnici {year}.xlsx"
+        if xlsx_file.exists():
+            print(f"Error: Found {xlsx_file.name} but this script requires .xlsm file with macros.")
+            print(f"Please rename {xlsx_file.name} to {ucesnici_file.name} and add the VBA macro.")
+            return
+        else:
+            print(f"Error: Participants file not found: {ucesnici_file.name}")
+            return
     
-    if not ucesnici_file:
-        print(f"Error: Participants file not found: Ucesnici {year}.xlsx or Ucesnici {year}.xlsm")
-        return
-    
-    # Load ratings lookup
-    ratings_file = Path("Rating/all_ratings.csv")
+    # Load ratings lookup (relative to project root)
+    project_root = tournament_folder.parent
+    ratings_file = project_root / "Rating" / "all_ratings.csv"
     
     if not ratings_file.exists():
         print(f"Warning: Ratings file not found: {ratings_file}")
