@@ -326,6 +326,116 @@ def update_tournament_file(tournament_file, paid_participants, ratings_lookup, d
     except Exception as e:
         print(f"Error updating tournament file {tournament_file}: {e}")
 
+def process_forbidden_pairs(tournament_file, paid_participants, project_root):
+    """Process forbidden pairs and add them to tournament file"""
+    try:
+        # Find forbidden pairs Excel file
+        forbidden_file = None
+        for ext in ['.xlsx', '.xlsm']:
+            test_file = project_root / f"Забрањени парови{ext}"
+            if test_file.exists():
+                forbidden_file = test_file
+                break
+        
+        if not forbidden_file:
+            print("No forbidden pairs Excel file found (looking for Забрањени парови.xlsx or .xlsm)")
+            return
+        
+        # Read forbidden pairs from Excel
+        forbidden_groups = []
+        df = pd.read_excel(forbidden_file, header=None)  # No headers, just data
+        
+        for _, row in df.iterrows():
+            # Get all non-null values from the row and trim whitespace
+            names = []
+            for value in row:
+                if pd.notna(value) and str(value).strip():
+                    names.append(str(value).strip())
+            
+            if len(names) >= 2:
+                forbidden_groups.append(names)
+        
+        if not forbidden_groups:
+            print("No forbidden pairs found in file")
+            return
+        
+        # Generate pairs from paid participants
+        forbidden_pairs = []
+        paid_set = set(paid_participants)
+        
+        for group in forbidden_groups:
+            # Find which names from this group are paid participants
+            paid_in_group = [name for name in group if name in paid_set]
+            
+            # Generate all pairs from paid participants in this group
+            for i in range(len(paid_in_group)):
+                for j in range(i + 1, len(paid_in_group)):
+                    pair = (paid_in_group[i], paid_in_group[j])
+                    forbidden_pairs.append(pair)
+        
+        if not forbidden_pairs:
+            print("No forbidden pairs among paid participants")
+            return
+        
+        print(f"Found {len(forbidden_pairs)} forbidden pairs among paid participants:")
+        for player1, player2 in forbidden_pairs:
+            print(f"  {player1} - {player2}")
+        
+        # Add pairs to tournament file
+        add_forbidden_pairs_to_tournament(tournament_file, forbidden_pairs)
+        
+    except Exception as e:
+        print(f"Error processing forbidden pairs: {e}")
+
+def add_forbidden_pairs_to_tournament(tournament_file, forbidden_pairs):
+    """Add forbidden pairs to the tournament file's Zabranjeni parovi sheet"""
+    try:
+        if EXCEL_COM_AVAILABLE:
+            # Use COM to add to specific sheet
+            xl = win32com.client.Dispatch("Excel.Application")
+            xl.Visible = True
+            xl.DisplayAlerts = False
+            
+            # Try to find if workbook is open
+            workbook = None
+            file_name = Path(tournament_file).name
+            
+            for wb in xl.Workbooks:
+                if wb.Name == file_name:
+                    workbook = wb
+                    break
+            
+            if workbook is None:
+                workbook = xl.Workbooks.Open(tournament_file)
+            
+            # Find or create "Zabranjeni parovi" sheet
+            sheet = None
+            for ws in workbook.Worksheets:
+                if ws.Name == "Zabranjeni parovi":
+                    sheet = ws
+                    break
+            
+            if sheet is None:
+                print("Warning: 'Zabranjeni parovi' sheet not found in tournament file")
+                return
+            
+            # Clear existing content (optional - you might want to append instead)
+            sheet.UsedRange.Clear()
+            
+            # Add pairs
+            for i, (player1, player2) in enumerate(forbidden_pairs, start=1):
+                sheet.Cells(i, 1).Value = player1
+                sheet.Cells(i, 2).Value = player2
+            
+            workbook.Save()
+            print(f"Added {len(forbidden_pairs)} forbidden pairs to 'Zabranjeni parovi' sheet")
+            
+        else:
+            print("Warning: COM not available, cannot update forbidden pairs sheet")
+            
+    except Exception as e:
+        print(f"Error adding forbidden pairs to tournament file: {e}")
+
 def main():
     """Main function to orchestrate the participant update process"""
     
@@ -388,6 +498,9 @@ def main():
     
     # Update tournament file
     update_tournament_file(tournament_file, paid_participants, ratings_lookup)
+    
+    # Process forbidden pairs
+    process_forbidden_pairs(tournament_file, paid_participants, project_root)
 
 if __name__ == "__main__":
     main()
