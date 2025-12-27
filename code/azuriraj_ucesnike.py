@@ -344,10 +344,18 @@ def main():
         print(f"Error: Tournament folder does not exist: {tournament_folder}")
         return
     
-    # Find participants file
-    ucesnici_file = tournament_folder / f"Ucesnici {tournament_folder.name.split()[-1]}.xlsx"
-    if not ucesnici_file.exists():
-        print(f"Error: Participants file not found: {ucesnici_file}")
+    # Find participants file (try both .xlsm and .xlsx)
+    year = tournament_folder.name.split()[-1]
+    ucesnici_file = None
+    
+    for ext in ['.xlsm', '.xlsx']:
+        potential_file = tournament_folder / f"Ucesnici {year}{ext}"
+        if potential_file.exists():
+            ucesnici_file = potential_file
+            break
+    
+    if not ucesnici_file:
+        print(f"Error: Participants file not found: Ucesnici {year}.xlsx or Ucesnici {year}.xlsm")
         return
     
     # Load ratings lookup
