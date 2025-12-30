@@ -86,7 +86,8 @@ def excel_to_csv():
         ("8", r'Turnir 2019 - 12'),
         ("9", r'Turnir 2022'),
         ("10", r'Turnir 2023'),
-        ("11", r'Turnir 2024')
+        ("11", r'Turnir 2024'),
+        ("12", r'Turnir 2025'),
     ]
     for id, fileName in pairs:
         izvoz(id, fileName)
